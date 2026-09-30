@@ -52,6 +52,7 @@
           <div><span class="label">Z факт</span><b id="ro-z">—</b></div>
           <div><span class="label">Угол</span><b id="ro-a">—</b></div>
           <div><span class="label">Схват</span><b id="ro-g">—</b></div>
+          <div><span class="label">Лампа</span><span id="ro-lamp" class="ro-lamp"><i data-c="red"></i><i data-c="yellow"></i><i data-c="green"></i><i data-c="blue"></i></span></div>
         </div>
       </div>
     </section>
@@ -66,25 +67,65 @@
         </div>
 
         <div class="axis" data-key="x">
-          <label>Вылет <code>x</code></label>
-          <div class="num"><input type="text" inputmode="decimal"><span>мм</span></div>
-          <input type="range" min="0" max="340" step="1">
+          <div class="axis-head">
+            <label>Вылет <code>x</code></label>
+            <span class="muted small">10–300 мм · <kbd>←</kbd><kbd>→</kbd></span>
+          </div>
+          <div class="axis-ctrl">
+            <button class="stepbtn" data-jog="x-" title="ближе к базе (←)" aria-label="Вылет: ближе к базе">−</button>
+            <input type="range" min="10" max="300" step="1" aria-label="Вылет">
+            <button class="stepbtn" data-jog="x+" title="дальше от базы (→)" aria-label="Вылет: дальше от базы">+</button>
+            <div class="num"><input type="text" inputmode="decimal" aria-label="Вылет, значение"><span>мм</span></div>
+          </div>
+          <div class="axis-hint"><span>− ближе к базе</span><span>дальше от базы +</span></div>
         </div>
         <div class="axis" data-key="z">
-          <label>Высота <code>z</code></label>
-          <div class="num"><input type="text" inputmode="decimal"><span>мм</span></div>
-          <input type="range" min="0" max="420" step="1">
+          <div class="axis-head">
+            <label>Высота <code>z</code></label>
+            <span class="muted small">10–300 мм · <kbd>↓</kbd><kbd>↑</kbd></span>
+          </div>
+          <div class="axis-ctrl">
+            <button class="stepbtn" data-jog="z-" title="ниже (↓)" aria-label="Высота: ниже">−</button>
+            <input type="range" min="10" max="300" step="1" aria-label="Высота">
+            <button class="stepbtn" data-jog="z+" title="выше (↑)" aria-label="Высота: выше">+</button>
+            <div class="num"><input type="text" inputmode="decimal" aria-label="Высота, значение"><span>мм</span></div>
+          </div>
+          <div class="axis-hint"><span>− ниже</span><span>выше +</span></div>
         </div>
         <div class="axis" data-key="angel">
-          <label>Поворот базы <code>angel</code></label>
-          <div class="num"><input type="text" inputmode="decimal"><span>°</span></div>
-          <input type="range" min="0" max="360" step="1">
+          <div class="axis-head">
+            <label>Поворот базы <code>angel</code></label>
+            <span class="muted small">1–360 ° · <kbd>Q</kbd><kbd>E</kbd></span>
+          </div>
+          <div class="axis-ctrl">
+            <button class="stepbtn" data-jog="a-" title="вправо, по часовой на виде сверху (Q)" aria-label="Поворот базы: вправо">−</button>
+            <input type="range" min="1" max="360" step="1" aria-label="Поворот базы">
+            <button class="stepbtn" data-jog="a+" title="влево, против часовой на виде сверху (E)" aria-label="Поворот базы: влево">+</button>
+            <div class="num"><input type="text" inputmode="decimal" aria-label="Поворот базы, значение"><span>°</span></div>
+          </div>
+          <div class="axis-hint"><span>− вправо ↻</span><span>↺ влево +</span></div>
         </div>
         <div class="axis" data-key="pov_gripper">
-          <label>Поворот схвата <code>pov_gripper</code></label>
-          <div class="num"><input type="text" inputmode="decimal"><span>°</span></div>
-          <input type="range" min="0" max="300" step="1">
+          <div class="axis-head">
+            <label>Поворот схвата <code>pov_gripper</code></label>
+            <span class="muted small">1–300 ° · <kbd>A</kbd><kbd>D</kbd></span>
+          </div>
+          <div class="axis-ctrl">
+            <button class="stepbtn" data-jog="p-" title="повернуть схват: уменьшить угол (A)" aria-label="Поворот схвата: уменьшить угол">−</button>
+            <input type="range" min="1" max="300" step="1" aria-label="Поворот схвата">
+            <button class="stepbtn" data-jog="p+" title="повернуть схват: увеличить угол (D)" aria-label="Поворот схвата: увеличить угол">+</button>
+            <div class="num"><input type="text" inputmode="decimal" aria-label="Поворот схвата, значение"><span>°</span></div>
+          </div>
+          <div class="axis-hint"><span>− угол меньше</span><span>угол больше +</span></div>
         </div>
+
+        <div class="row between steps-row">
+          <span class="muted small">Шаг кнопок − / +</span>
+          <div class="seg seg-sm" id="steps">
+            <button data-step="1">1</button><button data-step="5">5</button><button data-step="10" class="on">10</button><button data-step="25">25</button>
+          </div>
+        </div>
+        <p class="muted small hint-line" id="step-hint">Кнопки − / + сразу двигают руку, удерживайте для непрерывного движения. <kbd>Shift</kbd> с клавишей — шаг ×5.</p>
 
         <p id="goal-error" class="error" hidden></p>
 
@@ -108,32 +149,17 @@
           <label class="switch"><input id="grip" type="checkbox"><span></span></label>
         </div>
 
-        <div class="block">
-          <div class="label">Шаг</div>
-          <div class="seg" id="steps">
-            <button data-step="1">1</button><button data-step="5">5</button><button data-step="10" class="on">10</button><button data-step="25">25</button>
+        <div class="lamp">
+          <div class="row between">
+            <span>Лампа</span>
+            <span class="row tight"><span id="lamp-state" class="muted small"></span><button id="lamp-off" class="link">выключить все</button></span>
           </div>
-          <div class="jog">
-            <div class="jog-group">
-              <div class="label">X · Z</div>
-              <div class="cross">
-                <button data-jog="z+" title="Z вверх (↑)">↑</button>
-                <button data-jog="x-" title="X к базе (←)">←</button>
-                <button data-jog="x+" title="X от базы (→)">→</button>
-                <button data-jog="z-" title="Z вниз (↓)">↓</button>
-              </div>
-            </div>
-            <div class="jog-group">
-              <div class="label">База · схват</div>
-              <div class="cross">
-                <button data-jog="p+" title="Схват + (D)">↻</button>
-                <button data-jog="a-" title="База − (Q)">⟲</button>
-                <button data-jog="a+" title="База + (E)">⟳</button>
-                <button data-jog="p-" title="Схват − (A)">↺</button>
-              </div>
-            </div>
+          <div class="lamp-btns" id="lamp-btns">
+            <button data-lamp="red" aria-pressed="false"><i style="--c:#e5484d"></i>Красный</button>
+            <button data-lamp="yellow" aria-pressed="false"><i style="--c:#f5b400"></i>Жёлтый</button>
+            <button data-lamp="green" aria-pressed="false"><i style="--c:#30a46c"></i>Зелёный</button>
+            <button data-lamp="blue" aria-pressed="false"><i style="--c:#3ab8f0"></i>Голубой</button>
           </div>
-          <p class="muted small">Удерживайте кнопку для непрерывного движения. Клавиши: <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> <kbd>Q</kbd><kbd>E</kbd> <kbd>A</kbd><kbd>D</kbd>, <kbd>Shift</kbd> — шаг ×5.</p>
         </div>
 
         <div class="footer">
@@ -237,6 +263,10 @@
 }</textarea>
         </div>
         <div class="api-row">
+          <div class="api-head"><span class="method">PUT</span><code>/api/lamp</code><button class="link" data-api="lamp">Выполнить</button></div>
+          <textarea id="api-body-lamp" class="code-input" rows="6" spellcheck="false"></textarea>
+        </div>
+        <div class="api-row">
           <div class="api-head"><span class="method">POST</span><code>/api/motors/pos/set</code><button class="link" data-api="set">Выполнить</button></div>
           <textarea id="api-body-set" class="code-input" rows="7" spellcheck="false"></textarea>
         </div>
@@ -272,13 +302,22 @@
           <span id="s-mode" class="muted small"></span>
         </div>
         <div class="field">
+          <label>Лампа</label>
+          <div class="addr">
+            <input id="s-lamp-host" class="input mono" placeholder="как у контроллера" aria-label="IP лампы" autocomplete="off" spellcheck="false">
+            <span class="muted">:</span>
+            <input id="s-lamp-port" class="input mono" placeholder="80" inputmode="numeric" aria-label="Порт лампы" autocomplete="off">
+          </div>
+          <span class="muted small">PUT http://IP/api/lamp · пусто — тот же IP, что у контроллера, порт 80.</span>
+        </div>
+        <div class="field">
           <label>Отправка команд</label>
           <div class="seg" id="s-transport"><button data-v="ws">WebSocket /ws</button><button data-v="http">POST /pos/set</button></div>
           <span class="muted small">При разрыве WS команды уходят через POST.</span>
         </div>
         <div class="grid2">
           <div class="field"><label for="s-poll">Опрос, мс</label><input id="s-poll" class="input mono" inputmode="numeric"></div>
-          <div class="field"><label for="s-zmin">Мин. высота Z, мм</label><input id="s-zmin" class="input mono" inputmode="numeric"></div>
+<div></div>
         </div>
         <div class="field">
           <label>gripper_state = true означает</label>

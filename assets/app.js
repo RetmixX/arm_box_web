@@ -50,7 +50,9 @@
     transport: 'ws',
     demo: false,
     pollMs: 1000,
-    zMin: 0,
+    lampHost: '', // IP лампы; пусто — как у контроллера
+    lampPort: '', // порт лампы; пусто — 80
+    lamp: { red: false, yellow: false, green: false, blue: false }, // последнее отправленное состояние
     step: 10,
     live: false,
     gripTrue: 'open', // что означает gripper_state = true
@@ -82,8 +84,8 @@
     try {
       const r = await fetch('/__backend', { headers: { accept: 'application/json' } });
       const j = r.ok && /json/.test(r.headers.get('content-type') || '') ? await r.json() : null;
-      if (j && j.proxy === 'serve.py') proxy = { kind: 'serve', host: j.host, port: j.port };
-      else if (j && j.proxy === 'nginx') proxy = { kind: 'nginx', url: j.url };
+      if (j && j.proxy === 'serve.py') proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port };
+      else if (j && j.proxy === 'nginx') proxy = { kind: 'nginx', url: j.url, lampUrl: j.lamp_url };
       else proxy = { kind: 'none' };
     } catch (_) {
       proxy = { kind: 'none' };
@@ -101,25 +103,41 @@
     return hostOf() + ':' + portOf();
   }
 
+  const lampHostOf = () => (S.lampHost || '').trim() || (proxy.kind === 'serve' ? proxy.host : hostOf());
+  const lampPortOf = () => +S.lampPort || 80;
+  function lampAddr() {
+    if (proxy.kind === 'serve') return (proxy.lampHost || proxy.host) + ':' + (proxy.lampPort || 80);
+    if (proxy.kind === 'nginx') return String(proxy.lampUrl || '').replace(/^https?:\/\//, '') || '—';
+    return lampHostOf() + ':' + lampPortOf();
+  }
+
   function urls() {
     if (proxy.kind !== 'none') {
-      return { api: '/api/motors', ws: (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws' };
+      return { api: '/api/motors', ws: (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws', lamp: '/api/lamp' };
     }
     const h = hostOf().includes(':') ? '[' + hostOf() + ']' : hostOf();
-    return { api: 'http://' + h + ':' + portOf() + '/api/motors', ws: 'ws://' + h + ':' + portOf() + '/ws' };
+    return {
+      api: 'http://' + h + ':' + portOf() + '/api/motors',
+      ws: 'ws://' + h + ':' + portOf() + '/ws',
+      lamp: 'http://' + lampHostOf() + (lampPortOf() === 80 ? '' : ':' + lampPortOf()) + '/api/lamp',
+    };
   }
 
   /** Переключить прокси serve.py на другой backend */
-  async function pushBackend(host, port) {
+  async function pushBackend(host, port, lamp) {
+    const body = { host, port };
+    if (lamp) { body.lamp_host = lamp.host || ''; body.lamp_port = lamp.port || 80; }
     const r = await fetch('/__backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host, port }),
+      body: JSON.stringify(body),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.detail || 'HTTP ' + r.status);
-    proxy = { kind: 'serve', host: j.host, port: j.port };
+    proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port };
   }
+  // адрес лампы из настроек браузера; undefined — оставить тот, что задан в serve.py (--lamp)
+  const lampPref = () => (S.lampHost || S.lampPort ? { host: (S.lampHost || '').trim(), port: +S.lampPort || 80 } : undefined);
 
   const MOTORS = [
     { id: 1, name: 'База', ticks: 4096, deg: 360 },
@@ -129,7 +147,10 @@
     { id: 5, name: 'Поворот схвата', ticks: 1024, deg: 300 },
     { id: 6, name: 'Схват', ticks: 1024, deg: 300 },
   ];
-  const LIMITS = { x: [0, 340], z: [-100, 420], angel: [0, 360], pov_gripper: [0, 300] };
+  // Допустимые диапазоны параметров команды (зафиксированы заказчиком)
+  const LIMITS = { x: [10, 300], z: [10, 300], angel: [1, 360], pov_gripper: [1, 300] };
+  const LIMIT_NAMES = { x: 'Вылет x', z: 'Высота z', angel: 'Угол базы', pov_gripper: 'Поворот схвата' };
+  const UNITS = { x: ' мм', z: ' мм', angel: '°', pov_gripper: '°' };
 
   /* ================================ состояние ================================ */
 
@@ -170,9 +191,10 @@
   });
 
   function validate(t) {
-    if (t.z < S.zMin) return 'Z ниже минимальной высоты (' + S.zMin + ' мм)';
-    if (t.angel < 0 || t.angel > 360) return 'Угол базы вне диапазона 0…360°';
-    if (t.pov_gripper < 0 || t.pov_gripper > 300) return 'Поворот схвата вне диапазона 0…300°';
+    for (const k of Object.keys(LIMITS)) {
+      const [lo, hi] = LIMITS[k];
+      if (!(t[k] >= lo && t[k] <= hi)) return LIMIT_NAMES[k] + ': допустимо ' + lo + '–' + hi + UNITS[k];
+    }
     if (!Kin.inverse(t.x, t.z, t.angel)) return 'Точка вне рабочей зоны';
     return null;
   }
@@ -233,11 +255,13 @@
   function startDriver() {
     stopDriver();
     const u = urls();
-    const d = S.demo ? new Driver.DemoDriver() : new Driver.RealDriver(u.api, u.ws);
+    const d = S.demo ? new Driver.DemoDriver() : new Driver.RealDriver(u.api, u.ws, u.lamp);
     const my = ++gen;
     Object.assign(st, { driver: d, link: 'unknown', ws: 'idle', pos: {}, temp: {}, load: {}, history: [], busy: false, queued: false, speed: null, speedSupported: null });
     addLog('info', S.demo ? 'Демо-режим: симуляция манипулятора' : 'Подключение к ' + backendAddr() + (proxy.kind !== 'none' ? ' (через прокси ' + (proxy.kind === 'serve' ? 'serve.py' : 'nginx') + ')' : ' (напрямую)'));
     renderSpeed();
+    lampError = '';
+    renderLamp();
 
     let prev = 'idle';
     d.onWs((s) => {
@@ -452,6 +476,54 @@
     if (fn) { e.preventDefault(); fn(); }
   });
 
+  /* ================================== лампа ================================== */
+
+  const LAMP_NAMES = { red: 'красный', yellow: 'жёлтый', green: 'зелёный', blue: 'голубой' };
+  let lampBusy = false;
+  let lampError = '';
+
+  async function sendLamp(next) {
+    if (!st.driver || lampBusy) return;
+    lampBusy = true;
+    lampError = '';
+    renderLamp(next);
+    try {
+      await st.driver.setLamp(next);
+      S.lamp = Driver.lampBody(next);
+      saveSettings();
+      const on = Object.keys(S.lamp).filter((k) => S.lamp[k]).map((k) => LAMP_NAMES[k]);
+      addLog('ok', 'Лампа: ' + (on.length ? on.join(', ') : 'выключена'));
+    } catch (e) {
+      lampError = e.message;
+      addLog('error', 'Лампа (' + lampAddr() + '): ' + e.message);
+      toast('Лампа не ответила: ' + e.message, 'error');
+    } finally {
+      lampBusy = false;
+      renderLamp();
+    }
+  }
+
+  function renderLamp(preview) {
+    const state = preview || S.lamp;
+    $$('#lamp-btns button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(!!state[b.dataset.lamp]));
+      b.disabled = lampBusy || !st.driver;
+    });
+    $$('#ro-lamp i').forEach((i) => i.classList.toggle('on', !!S.lamp[i.dataset.c]));
+    const el = $('#lamp-state');
+    el.textContent = lampBusy ? 'отправка…' : lampError ? 'ошибка' : S.demo ? 'демо' : lampAddr();
+    el.style.color = lampError ? 'var(--err)' : '';
+    el.title = lampError;
+  }
+
+  $('#lamp-btns').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-lamp]');
+    if (!b) return;
+    const next = Object.assign({}, S.lamp, { [b.dataset.lamp]: !S.lamp[b.dataset.lamp] });
+    sendLamp(next);
+  });
+  $('#lamp-off').addEventListener('click', () => sendLamp({ red: false, yellow: false, green: false, blue: false }));
+
   /* ================================ скорость ================================ */
 
   const isNotFound = (e) => /HTTP 404|нет backend/.test(e.message);
@@ -571,8 +643,8 @@
     g.fillStyle = colors.zone;
     const step = 4;
     const cell = step * m.s + 0.6;
-    for (let x = 0; x <= 345; x += step) {
-      for (let z = 0; z <= WZ1; z += step) {
+    for (let x = LIMITS.x[0]; x <= LIMITS.x[1]; x += step) {
+      for (let z = LIMITS.z[0]; z <= LIMITS.z[1]; z += step) {
         if (Kin.isReachable(x, z)) g.fillRect(m.X(x) - cell / 2, m.Z(z) - cell / 2, cell, cell);
       }
     }
@@ -650,7 +722,12 @@
 
     // пол
     line(g, [[m.X(WX0), m.Z(0)], [m.X(WX1), m.Z(0)]], 1, colors.strong);
-    if (S.zMin > 0) line(g, [[m.X(WX0), m.Z(S.zMin)], [m.X(WX1), m.Z(S.zMin)]], 1, colors.warn, [4, 4]);
+    // границы допустимых x и z
+    g.setLineDash([3, 4]);
+    g.strokeStyle = colors.strong;
+    g.lineWidth = 1;
+    g.strokeRect(m.X(LIMITS.x[0]), m.Z(LIMITS.z[1]), (LIMITS.x[1] - LIMITS.x[0]) * m.s, (LIMITS.z[1] - LIMITS.z[0]) * m.s);
+    g.setLineDash([]);
 
     // основание
     const B = Kin.GEOM.BASE_HEIGHT;
@@ -688,7 +765,7 @@
 
     // точка цели
     const tx = m.X(st.target.x), tz = m.Z(st.target.z);
-    const ok = !!tp && st.target.z >= S.zMin;
+    const ok = !!tp && !validate(st.target);
     const c = ok ? colors.goal : colors.err;
     line(g, [[tx - 9, tz], [tx + 9, tz]], 1, c);
     line(g, [[tx, tz - 9], [tx, tz + 9]], 1, c);
@@ -781,7 +858,8 @@
     const m = sideMap(r.width, r.height);
     const x = Math.round(m.x(e.clientX - r.left));
     const z = Math.round(m.z(e.clientY - r.top));
-    if (Kin.isReachable(x, z) && z >= S.zMin) setTarget({ x, z }, commit ? undefined : false);
+    const cx = clamp(x, LIMITS.x[0], LIMITS.x[1]), cz = clamp(z, LIMITS.z[0], LIMITS.z[1]);
+    if (Kin.isReachable(cx, cz)) setTarget({ x: cx, z: cz }, commit ? undefined : false);
   });
 
   bindPointer(cvTop, (e, commit) => {
@@ -789,8 +867,8 @@
     const dx = e.clientX - r.left - r.width / 2;
     const dy = r.height / 2 - (e.clientY - r.top);
     let a = Math.round((Math.atan2(dy, dx) * 180) / Math.PI + 90);
-    if (a < 0) a += 360;
-    setTarget({ angel: clamp(a, 0, 360) }, commit ? undefined : false);
+    if (a <= 0) a += 360;
+    setTarget({ angel: clamp(a, LIMITS.angel[0], LIMITS.angel[1]) }, commit ? undefined : false);
   });
 
   window.addEventListener('resize', () => { dirty = true; });
@@ -1046,6 +1124,7 @@
     const cmd = Driver.normalize(toCommand(st.target));
     $('#api-body-set').value = JSON.stringify(cmd, null, 2);
     $('#api-body-ws').value = JSON.stringify(Object.assign({ command: 'exec' }, cmd), null, 2);
+    $('#api-body-lamp').value = JSON.stringify(Driver.lampBody(S.lamp), null, 2);
   }
 
   function apiPrint(title, ok, ms, body) {
@@ -1068,6 +1147,15 @@
         // попутно обновим телеметрию в интерфейсе
         st[kind] = Driver.asDict(raw);
         dirty = true;
+      } else if (kind === 'lamp') {
+        const body = JSON.parse($('#api-body-lamp').value);
+        const res = await Driver.request(u.lamp, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(body),
+        }, 5000);
+        apiPrint('PUT /api/lamp  (' + lampAddr() + ')', true, ms(), res == null || res === '' ? 'OK' : res);
+        S.lamp = Driver.lampBody(body); saveSettings(); renderLamp();
       } else if (kind === 'speed-get') {
         const res = await Driver.request(u.api + '/speed');
         apiPrint('GET /api/motors/speed', true, ms(), res);
@@ -1105,7 +1193,7 @@
         apiPrint('WS /ws', reply && reply.status === 'ok', ms(), reply);
       }
     } catch (e) {
-      const titles = { ws: 'WS /ws', set: 'POST /api/motors/pos/set', 'speed-get': 'GET /api/motors/speed', 'speed-set': 'POST /api/motors/speed' };
+      const titles = { lamp: 'PUT /api/lamp', ws: 'WS /ws', set: 'POST /api/motors/pos/set', 'speed-get': 'GET /api/motors/speed', 'speed-set': 'POST /api/motors/speed' };
       apiPrint(titles[kind] || 'GET /api/motors/' + kind, false, ms(), e.message);
     }
   }
@@ -1134,7 +1222,15 @@
         ? 'Задаётся переменной BACKEND_URL в docker-compose (nginx).'
         : 'Прямое подключение: backend должен разрешать CORS (см. README). Проще запустить serve.py.';
     $('#s-poll').value = S.pollMs;
-    $('#s-zmin').value = S.zMin;
+    const lh = $('#s-lamp-host'), lp = $('#s-lamp-port');
+    if (proxy.kind === 'nginx') {
+      try { const u = new URL(proxy.lampUrl); lh.value = u.hostname; lp.value = u.port || 80; } catch (_) { lh.value = ''; lp.value = ''; }
+    } else if (proxy.kind === 'serve' && !S.lampHost && !S.lampPort) {
+      lh.value = proxy.lampHost && proxy.lampHost !== proxy.host ? proxy.lampHost : '';
+      lp.value = proxy.lampPort && proxy.lampPort !== 80 ? proxy.lampPort : '';
+    } else { lh.value = S.lampHost; lp.value = S.lampPort; }
+    lh.placeholder = proxy.kind === 'serve' ? proxy.host : hostOf();
+    lh.disabled = lp.disabled = proxy.kind === 'nginx';
     $$('#s-transport button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.transport));
     $$('#s-grip button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.gripTrue));
   }
@@ -1177,7 +1273,15 @@
       }
     }
     S.pollMs = clamp(Math.round(+$('#s-poll').value) || 1000, 200, 10000);
-    S.zMin = clamp(Math.round(+$('#s-zmin').value) || 0, -100, 300);
+    const lampHost = $('#s-lamp-host').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const lampPort = $('#s-lamp-port').value.trim();
+    if (lampHost && !/^[\w.\-]+$/.test(lampHost)) { toast('Некорректный IP лампы', 'error'); return; }
+    if (lampPort && !(+lampPort >= 1 && +lampPort <= 65535)) { toast('Порт лампы должен быть от 1 до 65535', 'error'); return; }
+    S.lampHost = lampHost;
+    S.lampPort = lampPort;
+    if (proxy.kind === 'serve') {
+      try { await pushBackend(proxy.host, proxy.port, lampPref() || { host: '', port: 80 }); } catch (e) { toast('Прокси не принял адрес лампы: ' + e.message, 'error'); return; }
+    }
     saveSettings();
     renderSettings();
     renderControl();
@@ -1266,9 +1370,10 @@
   (async () => {
     await detectProxy();
     // адрес, сохранённый в браузере, передаём прокси serve.py
-    if (proxy.kind === 'serve' && S.host && (S.host !== proxy.host || portOf() !== proxy.port)) {
-      try { await pushBackend(hostOf(), portOf()); } catch (_) { /* ignore */ }
+    if (proxy.kind === 'serve' && (S.host || S.lampHost || S.lampPort)) {
+      try { await pushBackend(S.host ? hostOf() : proxy.host, S.host ? portOf() : proxy.port, lampPref()); } catch (_) { /* ignore */ }
     }
+    renderLamp();
     if (S.tab === 'settings') renderSettings();
     startDriver();
   })();

@@ -105,7 +105,7 @@ canvas { display: block; width: 100%; flex: 1; min-height: 0; cursor: crosshair;
 .view-side canvas { min-height: 260px; }
 .stage-bottom { display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: end; }
 .view-top canvas { height: 200px; flex: none; }
-.readout { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 40px; padding-bottom: 6px; }
+.readout { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; gap: 40px; padding-bottom: 6px; }
 .readout div { display: flex; flex-direction: column; gap: 2px; }
 .readout b { font: 500 28px/1.1 var(--mono); letter-spacing: -0.02em; }
 
@@ -122,9 +122,42 @@ canvas { display: block; width: 100%; flex: 1; min-height: 0; cursor: crosshair;
 h2 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
 h3 { font-size: 15px; font-weight: 600; margin: 0; }
 
-.axis { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; }
-.axis label { color: var(--text); }
-.axis input[type='range'] { grid-column: 1 / -1; }
+.axis { display: flex; flex-direction: column; gap: 6px; }
+.axis-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.axis-head kbd { font-size: 10px; }
+.axis-ctrl { display: grid; grid-template-columns: 32px 1fr 32px auto; align-items: center; gap: 8px; }
+.axis-ctrl .num { width: 96px; }
+.axis-hint { display: grid; grid-template-columns: 1fr 1fr 96px; gap: 8px; font-size: 11px; color: var(--muted); margin-top: -2px; }
+.axis-hint span:nth-child(2) { text-align: right; }
+.stepbtn {
+  width: 32px; height: 32px; border-radius: var(--r); border: 1px solid var(--line-strong);
+  font: 500 18px/1 var(--mono); user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  transition: background .1s, color .1s, border-color .1s;
+}
+.stepbtn:hover { border-color: var(--text); }
+.stepbtn:active, .stepbtn.held { background: var(--text); color: var(--bg); border-color: var(--text); }
+.steps-row { margin-top: -4px; }
+.hint-line { margin: -10px 0 0; }
+
+/* лампа */
+.lamp { display: flex; flex-direction: column; gap: 10px; }
+.lamp-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.lamp-btns button {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px;
+  border: 1px solid var(--line-strong); border-radius: var(--r); font-size: 12px; color: var(--muted);
+  transition: border-color .15s, color .15s, background .15s;
+}
+.lamp-btns button:hover { border-color: var(--text); color: var(--text); }
+.lamp-btns i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--c); transition: background .15s, box-shadow .15s; }
+.lamp-btns button[aria-pressed='true'] { color: var(--text); border-color: var(--text); }
+.lamp-btns button[aria-pressed='true'] i { background: var(--c); box-shadow: 0 0 10px var(--c); }
+.lamp-btns button:disabled { opacity: .5; cursor: wait; }
+.ro-lamp { display: flex; gap: 6px; padding-top: 8px; }
+.ro-lamp i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line-strong); }
+.ro-lamp i.on[data-c='red'] { background: #e5484d; border-color: #e5484d; }
+.ro-lamp i.on[data-c='yellow'] { background: #f5b400; border-color: #f5b400; }
+.ro-lamp i.on[data-c='green'] { background: #30a46c; border-color: #30a46c; }
+.ro-lamp i.on[data-c='blue'] { background: #3ab8f0; border-color: #3ab8f0; }
 
 .num { display: flex; align-items: baseline; border-bottom: 1px solid var(--line-strong); transition: border-color .15s; }
 .num:focus-within { border-color: var(--text); }
@@ -310,7 +343,7 @@ a { color: inherit; text-underline-offset: 3px; }
   .view-side canvas { height: 300px; flex: none; }
   .stage-bottom { grid-template-columns: 1fr; }
   .view-top canvas { height: 180px; }
-  .readout { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .readout { grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .readout b { font-size: 18px; }
   .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
   .pane { padding: 20px 16px; }

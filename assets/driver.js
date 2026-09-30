@@ -27,6 +27,8 @@
     };
   }
 
+  const lampBody = (s) => ({ red: !!s.red, yellow: !!s.yellow, green: !!s.green, blue: !!s.blue });
+
   async function request(url, init, timeoutMs = 15000) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -58,9 +60,10 @@
   /* ------------------------------ Реальный backend ------------------------------ */
 
   class RealDriver {
-    constructor(api, wsUrl, moveTimeoutMs = 60000) {
+    constructor(api, wsUrl, lampUrl, moveTimeoutMs = 60000) {
       this.kind = 'real';
       this.api = api;
+      this.lampUrl = lampUrl;
       this.wsUrl = wsUrl;
       this.moveTimeoutMs = moveTimeoutMs;
       this.ws = null;
@@ -86,6 +89,15 @@
         headers: { 'Content-Type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ speed: Math.round(speed) }),
       });
+    }
+
+    /** Лампа: PUT http://{ip}/api/lamp {red, yellow, green, blue} */
+    async setLamp(state) {
+      return request(this.lampUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(lampBody(state)),
+      }, 5000);
     }
 
     async move(raw, via) {
@@ -195,6 +207,7 @@
     }
 
     async getSpeed() { await sleep(10); return this.speed; }
+    async setLamp(state) { await sleep(40); this.lamp = lampBody(state); return this.lamp; }
     async setSpeed(v) { await sleep(20); this.speed = Math.max(1, Math.min(100, Math.round(v))); }
 
     async getLoad() {
@@ -230,5 +243,5 @@
     dispose() {}
   }
 
-  window.Driver = { RealDriver, DemoDriver, asDict, normalize, request };
+  window.Driver = { RealDriver, DemoDriver, asDict, normalize, request, lampBody };
 })();
