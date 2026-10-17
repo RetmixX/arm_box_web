@@ -2,342 +2,114 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E4E7EA">
   <title>ARM·BOX</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23111'/%3E%3Ccircle cx='8' cy='8' r='3' fill='%23fff'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23FF5A1F'/%3E%3Ccircle cx='8' cy='8' r='3' fill='%231F242B'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/present.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">ARM·BOX</div>
-    <nav class="tabs" role="tablist">
-      <button data-tab="control" class="on">Управление</button>
-      <button data-tab="programs">Программы</button>
-      <button data-tab="telemetry">Телеметрия</button>
-      <button data-tab="api">API</button>
-      <button data-tab="settings">Настройки</button>
+  <header class="bar">
+    <div class="brand">ARM<span>·</span>BOX</div>
+
+    <nav class="seg tabs" id="tabs" role="tablist" aria-label="Разделы">
+      <button role="tab" data-page="control" aria-selected="true">Управление</button>
+      <button role="tab" data-page="camera" aria-selected="false">Камера</button>
     </nav>
-    <div class="status">
-      <span id="st-busy" class="st busy" hidden><i class="dot pulse"></i>движение</span>
-      <span id="st-ws" class="st" hidden><i class="dot"></i>ws</span>
-      <span id="st-addr" class="mono small muted"></span>
-      <span id="st-link" class="st"><i class="dot"></i>—</span>
-      <button id="theme" class="icon" title="Тема" aria-label="Сменить тему"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+
+    <div class="bar-right">
+      <div class="seg speed" id="speed" role="radiogroup" aria-label="Скорость руки">
+        <button data-v="10" role="radio">Плавно</button>
+        <button data-v="30" role="radio">Обычно</button>
+        <button data-v="60" role="radio">Быстро</button>
+      </div>
+      <span class="status" id="status"><i></i><span>Подключение…</span></span>
+      <button class="icon" id="theme" title="Тема" aria-label="Сменить тему"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+      <button class="icon" id="fullscreen" title="Во весь экран" aria-label="Во весь экран">
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4"/></svg>
+      </button>
     </div>
   </header>
 
-  <main class="layout">
-    <!-- Визуализация: всегда на экране -->
-    <section class="stage">
-      <div id="banner" class="banner" hidden>
-        <span>Нет связи с контроллером <span id="banner-err" class="muted"></span></span>
-        <button id="banner-demo" class="link">Демо-режим</button>
+  <main class="stage" id="stage">
+    <canvas id="cv" aria-label="Схема руки: фактическое положение и цель"></canvas>
+
+    <dl class="readout" aria-live="off">
+      <div><dt>Вылет</dt><dd><b id="ro-x">—</b> мм</dd></div>
+      <div><dt>Высота</dt><dd><b id="ro-z">—</b> мм</dd></div>
+      <div><dt>База</dt><dd><b id="ro-a">—</b>°</dd></div>
+      <div><dt>Схват</dt><dd><b id="ro-p">—</b>°</dd></div>
+    </dl>
+
+    <div class="offline" id="offline" hidden>
+      <p class="offline-title">Рука не отвечает</p>
+      <p class="offline-text" id="offline-text"></p>
+      <div class="offline-actions">
+        <button class="btn" id="retry">Повторить</button>
+        <button class="btn" id="go-demo">Показать демо</button>
+        <a class="btn ghost" href="debug.html" id="go-settings">Настройки подключения</a>
       </div>
-
-      <div class="view view-side">
-        <div class="view-head">
-          <span class="label">Сбоку · X / Z</span>
-          <span class="legend"><i class="lg lg-fact"></i>факт <i class="lg lg-goal"></i>цель <i class="lg lg-zone"></i>рабочая зона</span>
-        </div>
-        <canvas id="cv-side" aria-label="Вид сбоку, кликните чтобы задать X и Z"></canvas>
-      </div>
-
-      <div class="stage-bottom">
-        <div class="view view-top">
-          <div class="view-head"><span class="label">Сверху · угол</span></div>
-          <canvas id="cv-top" aria-label="Вид сверху, кликните чтобы задать угол базы"></canvas>
-        </div>
-        <div class="readout">
-          <div><span class="label">X факт</span><b id="ro-x">—</b></div>
-          <div><span class="label">Z факт</span><b id="ro-z">—</b></div>
-          <div><span class="label">Угол</span><b id="ro-a">—</b></div>
-          <div><span class="label">Схват</span><b id="ro-g">—</b></div>
-          <div><span class="label">Лампа</span><span id="ro-lamp" class="ro-lamp"><i data-c="red"></i><i data-c="yellow"></i><i data-c="green"></i><i data-c="blue"></i></span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Правая панель -->
-    <aside class="panel">
-      <!-- УПРАВЛЕНИЕ -->
-      <section class="pane" data-pane="control">
-        <div class="pane-head">
-          <h2>Цель</h2>
-          <span id="goal-state" class="muted small">не отправлена</span>
-        </div>
-
-        <div class="axis" data-key="x">
-          <div class="axis-head">
-            <label>Вылет <code>x</code></label>
-            <span class="muted small">10–300 мм · <kbd>←</kbd><kbd>→</kbd></span>
-          </div>
-          <div class="axis-ctrl">
-            <button class="stepbtn" data-jog="x-" title="ближе к базе (←)" aria-label="Вылет: ближе к базе">−</button>
-            <input type="range" min="10" max="300" step="1" aria-label="Вылет">
-            <button class="stepbtn" data-jog="x+" title="дальше от базы (→)" aria-label="Вылет: дальше от базы">+</button>
-            <div class="num"><input type="text" inputmode="decimal" aria-label="Вылет, значение"><span>мм</span></div>
-          </div>
-          <div class="axis-hint"><span>− ближе к базе</span><span>дальше от базы +</span></div>
-        </div>
-        <div class="axis" data-key="z">
-          <div class="axis-head">
-            <label>Высота <code>z</code></label>
-            <span class="muted small">10–300 мм · <kbd>↓</kbd><kbd>↑</kbd></span>
-          </div>
-          <div class="axis-ctrl">
-            <button class="stepbtn" data-jog="z-" title="ниже (↓)" aria-label="Высота: ниже">−</button>
-            <input type="range" min="10" max="300" step="1" aria-label="Высота">
-            <button class="stepbtn" data-jog="z+" title="выше (↑)" aria-label="Высота: выше">+</button>
-            <div class="num"><input type="text" inputmode="decimal" aria-label="Высота, значение"><span>мм</span></div>
-          </div>
-          <div class="axis-hint"><span>− ниже</span><span>выше +</span></div>
-        </div>
-        <div class="axis" data-key="angel">
-          <div class="axis-head">
-            <label>Поворот базы <code>angel</code></label>
-            <span class="muted small">1–360 ° · <kbd>Q</kbd><kbd>E</kbd></span>
-          </div>
-          <div class="axis-ctrl">
-            <button class="stepbtn" data-jog="a-" title="вправо, по часовой на виде сверху (Q)" aria-label="Поворот базы: вправо">−</button>
-            <input type="range" min="1" max="360" step="1" aria-label="Поворот базы">
-            <button class="stepbtn" data-jog="a+" title="влево, против часовой на виде сверху (E)" aria-label="Поворот базы: влево">+</button>
-            <div class="num"><input type="text" inputmode="decimal" aria-label="Поворот базы, значение"><span>°</span></div>
-          </div>
-          <div class="axis-hint"><span>− вправо ↻</span><span>↺ влево +</span></div>
-        </div>
-        <div class="axis" data-key="pov_gripper">
-          <div class="axis-head">
-            <label>Поворот схвата <code>pov_gripper</code></label>
-            <span class="muted small">1–300 ° · <kbd>A</kbd><kbd>D</kbd></span>
-          </div>
-          <div class="axis-ctrl">
-            <button class="stepbtn" data-jog="p-" title="повернуть схват: уменьшить угол (A)" aria-label="Поворот схвата: уменьшить угол">−</button>
-            <input type="range" min="1" max="300" step="1" aria-label="Поворот схвата">
-            <button class="stepbtn" data-jog="p+" title="повернуть схват: увеличить угол (D)" aria-label="Поворот схвата: увеличить угол">+</button>
-            <div class="num"><input type="text" inputmode="decimal" aria-label="Поворот схвата, значение"><span>°</span></div>
-          </div>
-          <div class="axis-hint"><span>− угол меньше</span><span>угол больше +</span></div>
-        </div>
-
-        <div class="row between steps-row">
-          <span class="muted small">Шаг кнопок − / +</span>
-          <div class="seg seg-sm" id="steps">
-            <button data-step="1">1</button><button data-step="5">5</button><button data-step="10" class="on">10</button><button data-step="25">25</button>
-          </div>
-        </div>
-        <p class="muted small hint-line" id="step-hint">Кнопки − / + сразу двигают руку, удерживайте для непрерывного движения. <kbd>Shift</kbd> с клавишей — шаг ×5.</p>
-
-        <p id="goal-error" class="error" hidden></p>
-
-        <div class="speed">
-          <div class="row between">
-            <label for="speed">Скорость</label>
-            <span class="mono"><b id="speed-val">—</b> <span class="muted small">%</span></span>
-          </div>
-          <input id="speed" type="range" min="1" max="100" step="1" value="30">
-          <div class="row between muted small">
-            <div class="seg seg-sm" id="speed-presets"><button data-v="5">5</button><button data-v="15">15</button><button data-v="30">30</button><button data-v="60">60</button><button data-v="100">100</button></div>
-            <span id="speed-state"></span>
-          </div>
-        </div>
-
-        <div class="row between gripper">
-          <div>
-            <div id="grip-title">Схват закрыт</div>
-            <div class="muted small">gripper_state = <code id="grip-raw">false</code> · <kbd>G</kbd></div>
-          </div>
-          <label class="switch"><input id="grip" type="checkbox"><span></span></label>
-        </div>
-
-        <div class="lamp">
-          <div class="row between">
-            <span>Лампа</span>
-            <span class="row tight"><span id="lamp-state" class="muted small"></span><button id="lamp-off" class="link">выключить все</button></span>
-          </div>
-          <div class="lamp-btns" id="lamp-btns">
-            <button data-lamp="red" aria-pressed="false"><i style="--c:#e5484d"></i>Красный</button>
-            <button data-lamp="yellow" aria-pressed="false"><i style="--c:#f5b400"></i>Жёлтый</button>
-            <button data-lamp="green" aria-pressed="false"><i style="--c:#30a46c"></i>Зелёный</button>
-            <button data-lamp="blue" aria-pressed="false"><i style="--c:#3ab8f0"></i>Голубой</button>
-          </div>
-        </div>
-
-        <div class="footer">
-          <label class="row between live">
-            <span>Живой режим <span class="muted small">— отправлять сразу</span></span>
-            <span class="switch"><input id="live" type="checkbox"><span></span></span>
-          </label>
-          <div class="row">
-            <button id="btn-home" class="btn" title="H">Домой</button>
-            <button id="btn-exec" class="btn primary grow">Выполнить <kbd>Enter</kbd></button>
-          </div>
-        </div>
-      </section>
-
-      <!-- ПРОГРАММЫ -->
-      <section class="pane" data-pane="programs" hidden>
-        <div class="pane-head">
-          <h2>Программы</h2>
-          <div class="row tight">
-            <button id="prog-import" class="link">Импорт</button>
-            <button id="prog-export" class="link">Экспорт</button>
-            <input id="prog-file" type="file" accept=".json,application/json" hidden>
-          </div>
-        </div>
-        <form id="prog-new" class="row">
-          <input class="input grow" name="name" placeholder="Новая программа" autocomplete="off">
-          <button class="btn">Создать</button>
-        </form>
-        <ul id="prog-list" class="list"></ul>
-
-        <div id="prog-detail" hidden>
-          <div class="pane-head sub">
-            <h3 id="prog-name"></h3>
-            <span class="muted small" id="prog-meta"></span>
-          </div>
-          <div class="row">
-            <button id="prog-run" class="btn primary grow">Запустить</button>
-            <label class="row tight muted small"><span class="switch sm"><input id="prog-loop" type="checkbox"><span></span></span>повтор</label>
-          </div>
-          <ol id="points" class="points"></ol>
-          <button id="point-add" class="btn block">+ Добавить текущую цель</button>
-          <div class="row tight right">
-            <button id="prog-rename" class="link">Переименовать</button>
-            <button id="prog-dup" class="link">Дублировать</button>
-            <button id="prog-del" class="link danger">Удалить</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- ТЕЛЕМЕТРИЯ -->
-      <section class="pane" data-pane="telemetry" hidden>
-        <div class="pane-head">
-          <h2>Телеметрия</h2>
-          <span id="tele-time" class="muted small">—</span>
-        </div>
-        <table class="table">
-          <thead><tr><th>#</th><th>Мотор</th><th class="r">Позиция</th><th class="r">°C</th><th class="r">Нагр.</th></tr></thead>
-          <tbody id="tele-body"></tbody>
-        </table>
-        <div class="block">
-          <div class="label">Температура</div>
-          <svg id="spark-temp" class="spark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
-          <div class="label">Нагрузка, %</div>
-          <svg id="spark-load" class="spark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
-        </div>
-        <div class="pane-head sub">
-          <h3>Журнал</h3>
-          <div class="row tight"><button id="log-save" class="link">Скачать</button><button id="log-clear" class="link">Очистить</button></div>
-        </div>
-        <ul id="log" class="log"></ul>
-      </section>
-
-      <!-- API -->
-      <section class="pane" data-pane="api" hidden>
-        <div class="pane-head">
-          <h2>API</h2>
-          <span class="muted small mono" id="api-base"></span>
-        </div>
-        <p class="muted small" id="api-note">Прямые запросы к backend (Motors API). Работают и в демо-режиме — обращаются к реальному контроллеру.</p>
-
-        <div class="api-row">
-          <div class="api-head"><span class="method">GET</span><code>/api/motors/pos</code><button class="link" data-api="pos">Выполнить</button></div>
-          <div class="muted small">Текущая позиция моторов 1–6, тики</div>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">GET</span><code>/api/motors/temp</code><button class="link" data-api="temp">Выполнить</button></div>
-          <div class="muted small">Температура моторов</div>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">GET</span><code>/api/motors/load</code><button class="link" data-api="load">Выполнить</button></div>
-          <div class="muted small">Нагрузка на моторы</div>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">GET</span><code>/api/motors/speed</code><button class="link" data-api="speed-get">Выполнить</button></div>
-          <div class="muted small">Текущая скорость, %. Метод добавляется патчем из папки <code>backend-patch</code></div>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">POST</span><code>/api/motors/speed</code><button class="link" data-api="speed-set">Выполнить</button></div>
-          <textarea id="api-body-speed" class="code-input" rows="3" spellcheck="false">{
-  "speed": 30
-}</textarea>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">PUT</span><code>/api/lamp</code><button class="link" data-api="lamp">Выполнить</button></div>
-          <textarea id="api-body-lamp" class="code-input" rows="6" spellcheck="false"></textarea>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">POST</span><code>/api/motors/pos/set</code><button class="link" data-api="set">Выполнить</button></div>
-          <textarea id="api-body-set" class="code-input" rows="7" spellcheck="false"></textarea>
-        </div>
-        <div class="api-row">
-          <div class="api-head"><span class="method">WS</span><code>/ws</code><button class="link" data-api="ws">Отправить</button></div>
-          <textarea id="api-body-ws" class="code-input" rows="8" spellcheck="false"></textarea>
-        </div>
-        <div class="row between">
-          <button id="api-fill" class="link">Подставить текущую цель</button>
-          <button id="api-clear" class="link">Очистить ответы</button>
-        </div>
-
-        <div class="label">Ответ</div>
-        <pre id="api-out" class="api-out">—</pre>
-      </section>
-
-      <!-- НАСТРОЙКИ -->
-      <section class="pane" data-pane="settings" hidden>
-        <div class="pane-head"><h2>Настройки</h2></div>
-
-        <label class="row between">
-          <span>Демо-режим<br><span class="muted small">симуляция без оборудования</span></span>
-          <span class="switch"><input id="s-demo" type="checkbox"><span></span></span>
-        </label>
-
-        <div class="field">
-          <label>Контроллер (backend)</label>
-          <div class="addr">
-            <input id="s-host" class="input mono" placeholder="127.0.0.1" aria-label="IP-адрес" autocomplete="off" spellcheck="false">
-            <span class="muted">:</span>
-            <input id="s-port" class="input mono" placeholder="8000" inputmode="numeric" aria-label="Порт" autocomplete="off">
-          </div>
-          <span id="s-mode" class="muted small"></span>
-        </div>
-        <div class="field">
-          <label>Лампа</label>
-          <div class="addr">
-            <input id="s-lamp-host" class="input mono" placeholder="как у контроллера" aria-label="IP лампы" autocomplete="off" spellcheck="false">
-            <span class="muted">:</span>
-            <input id="s-lamp-port" class="input mono" placeholder="80" inputmode="numeric" aria-label="Порт лампы" autocomplete="off">
-          </div>
-          <span class="muted small">PUT http://IP/api/lamp · пусто — тот же IP, что у контроллера, порт 80.</span>
-        </div>
-        <div class="field">
-          <label>Отправка команд</label>
-          <div class="seg" id="s-transport"><button data-v="ws">WebSocket /ws</button><button data-v="http">POST /pos/set</button></div>
-          <span class="muted small">При разрыве WS команды уходят через POST.</span>
-        </div>
-        <div class="grid2">
-          <div class="field"><label for="s-poll">Опрос, мс</label><input id="s-poll" class="input mono" inputmode="numeric"></div>
-<div></div>
-        </div>
-        <div class="field">
-          <label>gripper_state = true означает</label>
-          <div class="seg" id="s-grip"><button data-v="open">открыт</button><button data-v="closed">закрыт</button></div>
-          <span class="muted small">Backend: true → мотор 6 = 370, false → 710.</span>
-        </div>
-        <div class="row">
-          <button id="s-test" class="btn">Проверить</button>
-          <button id="s-apply" class="btn primary">Применить</button>
-          <button id="s-reset" class="link danger right-auto">Сбросить</button>
-        </div>
-        <p id="s-result" class="small" hidden></p>
-      </section>
-    </aside>
+    </div>
   </main>
 
-  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <section class="deck">
+    <div class="deck-stick">
+      <div id="stick-left"></div>
+      <p class="caption">Вылет и высота</p>
+    </div>
+
+    <div class="deck-center">
+      <button class="grip" id="grip" aria-pressed="false">
+        <svg class="grip-icon" viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path class="jaw-l" d="M11 4v10l-3 6v8"/>
+          <path class="jaw-r" d="M21 4v10l3 6v8"/>
+        </svg>
+        <span id="grip-text">Открыть схват</span>
+      </button>
+
+      <div class="lamp" id="lamp" role="group" aria-label="Лампа">
+        <button data-lamp="red" aria-pressed="false" aria-label="Красный" style="--c:#e5484d"></button>
+        <button data-lamp="yellow" aria-pressed="false" aria-label="Жёлтый" style="--c:#f5b400"></button>
+        <button data-lamp="green" aria-pressed="false" aria-label="Зелёный" style="--c:#30a46c"></button>
+        <button data-lamp="blue" aria-pressed="false" aria-label="Голубой" style="--c:#3ab8f0"></button>
+      </div>
+      <p class="caption">Лампа</p>
+
+      <button class="home" id="home">Вернуть домой</button>
+    </div>
+
+    <div class="deck-stick">
+      <div id="stick-right"></div>
+      <p class="caption">Поворот базы и схвата</p>
+    </div>
+  </section>
+
+  <!-- Вкладка «Камера»: только поток и переключатель -->
+  <section class="campage" id="campage" hidden>
+    <div class="cam-head">
+      <label class="toggle">
+        <input type="checkbox" id="cam-toggle" role="switch">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="toggle-text" id="cam-toggle-text">Камера выключена</span>
+      </label>
+      <span class="cam-addr" id="cam-addr"></span>
+    </div>
+    <div class="cam-frame">
+      <img id="cam-img" alt="Изображение с камеры" hidden>
+      <span class="cam-live" id="cam-live" hidden><i></i>Прямой эфир</span>
+      <div class="cam-empty" id="cam-empty">
+        <p class="cam-empty-title" id="cam-title">Камера выключена</p>
+        <p class="cam-empty-text" id="cam-text">Включите её переключателем сверху.</p>
+      </div>
+    </div>
+  </section>
+
+  <a class="debug-link" href="debug.html">Отладка</a>
+  <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="assets/kinematics.js"></script>
   <script src="assets/driver.js"></script>
-  <script src="assets/app.js"></script>
+  <script src="assets/joystick.js"></script>
+  <script src="assets/present.js"></script>
 </body>
 </html>

@@ -50,6 +50,8 @@
     transport: 'ws',
     demo: false,
     pollMs: 1000,
+    camHost: '', // IP камеры; пусто — 192.168.0.105
+    camPort: '', // порт камеры; пусто — 8080
     lampHost: '', // IP лампы; пусто — как у контроллера
     lampPort: '', // порт лампы; пусто — 80
     lamp: { red: false, yellow: false, green: false, blue: false }, // последнее отправленное состояние
@@ -84,8 +86,8 @@
     try {
       const r = await fetch('/__backend', { headers: { accept: 'application/json' } });
       const j = r.ok && /json/.test(r.headers.get('content-type') || '') ? await r.json() : null;
-      if (j && j.proxy === 'serve.py') proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port };
-      else if (j && j.proxy === 'nginx') proxy = { kind: 'nginx', url: j.url, lampUrl: j.lamp_url };
+      if (j && j.proxy === 'serve.py') proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port, camHost: j.cam_host, camPort: j.cam_port };
+      else if (j && j.proxy === 'nginx') proxy = { kind: 'nginx', url: j.url, lampUrl: j.lamp_url, camUrl: j.cam_url };
       else proxy = { kind: 'none' };
     } catch (_) {
       proxy = { kind: 'none' };
@@ -127,6 +129,8 @@
   async function pushBackend(host, port, lamp) {
     const body = { host, port };
     if (lamp) { body.lamp_host = lamp.host || ''; body.lamp_port = lamp.port || 80; }
+    const cp = camPref();
+    if (cp) { body.cam_host = cp.host; body.cam_port = cp.port; }
     const r = await fetch('/__backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -134,8 +138,10 @@
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.detail || 'HTTP ' + r.status);
-    proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port };
+    proxy = { kind: 'serve', host: j.host, port: j.port, lampHost: j.lamp_host, lampPort: j.lamp_port, camHost: j.cam_host, camPort: j.cam_port };
   }
+  // адрес камеры из настроек браузера; undefined — оставить тот, что задан в serve.py (--camera)
+  const camPref = () => (S.camHost ? { host: S.camHost.trim(), port: +S.camPort || 8080 } : undefined);
   // адрес лампы из настроек браузера; undefined — оставить тот, что задан в serve.py (--lamp)
   const lampPref = () => (S.lampHost || S.lampPort ? { host: (S.lampHost || '').trim(), port: +S.lampPort || 80 } : undefined);
 
@@ -458,6 +464,59 @@
     btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jog(btn.dataset.jog); } });
   });
 
+  /* ------------------------------ джойстики ------------------------------ */
+
+  /** Цель, сдвинутая джойстиком; оси, уводящие за границы или из рабочей зоны, отбрасываются */
+  function joyTarget(t, a, maxMm, maxDeg) {
+    const lim = (k, v) => clamp(Math.round(v), LIMITS[k][0], LIMITS[k][1]);
+    const next = {
+      x: lim('x', t.x + a.lx * maxMm),
+      z: lim('z', t.z + a.ly * maxMm),
+      angel: lim('angel', t.angel - a.rx * maxDeg), // вправо — по часовой (угол меньше)
+      pov_gripper: lim('pov_gripper', t.pov_gripper + a.ry * maxDeg),
+    };
+    if (!Kin.isReachable(next.x, next.z, next.angel)) {
+      if (Kin.isReachable(next.x, t.z, next.angel)) next.z = t.z;
+      else if (Kin.isReachable(t.x, next.z, next.angel)) next.x = t.x;
+      else { next.x = t.x; next.z = t.z; }
+    }
+    const changed = ['x', 'z', 'angel', 'pov_gripper'].some((k) => next[k] !== t[k]);
+    return changed ? next : null;
+  }
+
+  const joyL = Joy.stick($('#joy-left'), { labels: { up: 'выше', down: 'ниже', left: 'ближе', right: 'дальше' }, ariaLabel: 'Вылет и высота' });
+  const joyR = Joy.stick($('#joy-right'), { labels: { up: 'схват +', down: 'схват −', left: 'влево', right: 'вправо' }, ariaLabel: 'Поворот базы и схвата' });
+  const padEdges = Joy.buttonEdges();
+
+  Joy.onGamepad((name) => {
+    $('#pad-state').textContent = name ? 'геймпад: ' + name.replace(/\s*\(.*$/, '').slice(0, 28) : 'геймпад не подключён';
+  });
+
+  Joy.loop({
+    interval: 70,
+    read() {
+      const pad = Joy.gamepad();
+      if (pad) {
+        const e = padEdges(pad.buttons);
+        if (e[0]) setTarget({ open: !st.target.open }, true); // A — схват
+        if (e[1]) setTarget(Object.assign({}, HOME), true);   // B — домой
+      }
+      const pick = (a, b) => (Math.abs(a) >= Math.abs(b) ? a : b);
+      return {
+        lx: pick(joyL.value.x, pad ? pad.left.x : 0),
+        ly: pick(joyL.value.y, pad ? pad.left.y : 0),
+        rx: pick(joyR.value.x, pad ? pad.right.x : 0),
+        ry: pick(joyR.value.y, pad ? pad.right.y : 0),
+      };
+    },
+    isBusy: () => st.busy || st.programRunning || !st.driver,
+    apply(a) {
+      // максимальный шаг на одну команду растёт с выбранным «шагом кнопок»
+      const next = joyTarget(st.target, a, Math.max(4, S.step * 1.5), Math.max(3, angStep() * 1.5));
+      if (next) setTarget(next, true);
+    },
+  });
+
   // Горячие клавиши
   window.addEventListener('keydown', (e) => {
     const tag = (e.target && e.target.tagName) || '';
@@ -609,7 +668,7 @@
   function readColors() {
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
-    colors = { bg: v('--bg'), soft: v('--bg-soft'), line: v('--line'), strong: v('--line-strong'), text: v('--text'), muted: v('--muted'), goal: v('--goal'), zone: v('--zone'), warn: v('--warn'), err: v('--err'), mono: v('--mono') };
+    colors = { bg: v('--bg'), soft: v('--bg-soft'), line: v('--line'), strong: v('--line-strong'), text: v('--text'), muted: v('--muted'), goal: v('--goal'), zone: v('--zone'), warn: v('--warn'), err: v('--err'), mono: v('--mono'), arm: v('--arm') };
     zoneCache = null;
     dirty = true;
   }
@@ -695,6 +754,7 @@
   }
 
   function drawSide() {
+    if (cvSide.offsetParent === null) return; // схема скрыта (показывается камера) — размер не трогаем
     const { w, h, dpr } = fitCanvas(cvSide);
     const g = cvSide.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -731,45 +791,45 @@
 
     // основание
     const B = Kin.GEOM.BASE_HEIGHT;
-    g.fillStyle = colors.bg;
-    g.strokeStyle = colors.text;
-    g.lineWidth = 1.5;
+    const bw = 34 * m.s;
+    g.fillStyle = colors.text;
     g.beginPath();
-    g.rect(m.X(-38), m.Z(B - 10), (76) * m.s, (B - 10) * m.s);
-    g.fill(); g.stroke();
-    line(g, [[m.X(-55), m.Z(0)], [m.X(55), m.Z(0)]], 3, colors.text);
+    if (g.roundRect) g.roundRect(m.X(0) - bw, m.Z(B), bw * 2, B * m.s, [8, 8, 0, 0]);
+    else g.rect(m.X(0) - bw, m.Z(B), bw * 2, B * m.s);
+    g.fill();
+    g.fillRect(m.X(0) - bw * 1.6, m.Z(0) - 6, bw * 3.2, 6);
 
     // след
-    if (trail.length > 1) line(g, trail.map((p) => [m.X(p.x), m.Z(p.z)]), 1, colors.muted);
+    if (trail.length > 1) { g.globalAlpha = 0.4; line(g, trail.map((p) => [m.X(p.x), m.Z(p.z)]), 1.5, colors.arm); g.globalAlpha = 1; }
 
     // цель (призрак)
     const tp = Kin.poseFromTarget(st.target.x, st.target.z, st.target.angel, st.target.pov_gripper);
     if (tp) {
       const j = Kin.joints(tp);
-      line(g, [j.s, j.e, j.w, j.t].map((p) => [m.X(p.x), m.Z(p.z)]), 1.5, colors.goal, [5, 4]);
+      line(g, [j.s, j.e, j.w, j.t].map((p) => [m.X(p.x), m.Z(p.z)]), 1.5, colors.muted, [6, 5]);
     }
 
     // фактическая поза
     const j = Kin.joints(shown);
     const P = (p) => [m.X(p.x), m.Z(p.z)];
-    line(g, [P(j.s), P(j.e), P(j.w)], Math.max(5, 16 * m.s), colors.text);
+    const thick = Math.max(8, 22 * m.s);
     g.lineCap = 'round';
-    line(g, [P(j.w), P({ x: j.w.x, z: j.t.z + 45 })], Math.max(3, 9 * m.s), colors.text);
+    line(g, [P(j.s), P(j.e), P(j.w)], thick, colors.arm);
+    line(g, [P(j.w), P({ x: j.w.x, z: j.t.z + 45 })], thick * 0.6, colors.arm);
     g.lineCap = 'butt';
     // пальцы схвата
     const open = 8 + shown.grip * 22;
     const fz0 = j.t.z + 45, fz1 = j.t.z;
-    [-1, 1].forEach((sgn) => line(g, [[m.X(j.w.x + sgn * open), m.Z(fz0)], [m.X(j.w.x + sgn * open), m.Z(fz1)]], 2, colors.text));
-    line(g, [[m.X(j.w.x - open), m.Z(fz0)], [m.X(j.w.x + open), m.Z(fz0)]], 2, colors.text);
-    [j.s, j.e, j.w].forEach((p) => dot(g, m.X(p.x), m.Z(p.z), Math.max(4, 10 * m.s), colors.bg, colors.text, 2));
+    const jaw = Math.max(3, 6 * m.s);
+    [-1, 1].forEach((sgn) => line(g, [[m.X(j.w.x + sgn * open), m.Z(fz0)], [m.X(j.w.x + sgn * open), m.Z(fz1)]], jaw, colors.text));
+    line(g, [[m.X(j.w.x - open), m.Z(fz0)], [m.X(j.w.x + open), m.Z(fz0)]], jaw, colors.text);
+    [j.s, j.e, j.w].forEach((p) => { dot(g, m.X(p.x), m.Z(p.z), thick * 0.62, colors.text); dot(g, m.X(p.x), m.Z(p.z), thick * 0.2, colors.soft); });
 
     // точка цели
     const tx = m.X(st.target.x), tz = m.Z(st.target.z);
     const ok = !!tp && !validate(st.target);
-    const c = ok ? colors.goal : colors.err;
-    line(g, [[tx - 9, tz], [tx + 9, tz]], 1, c);
-    line(g, [[tx, tz - 9], [tx, tz + 9]], 1, c);
-    dot(g, tx, tz, 4, c);
+    const c = ok ? colors.arm : colors.err;
+    dot(g, tx, tz, 8, null, c, 2.5);
     g.fillStyle = c;
     g.font = '11px ' + colors.mono;
     const label = st.target.x + ', ' + st.target.z;
@@ -802,18 +862,18 @@
 
     // цель
     const [gx, gy] = P(st.target.x, st.target.angel);
-    line(g, [[cx, cy], [gx, gy]], 1.5, colors.goal, [5, 4]);
-    dot(g, gx, gy, 4, colors.goal);
+    line(g, [[cx, cy], [gx, gy]], 1.5, colors.muted, [5, 4]);
+    dot(g, gx, gy, 5, null, colors.arm, 2);
 
     // факт
     const j = Kin.joints(shown);
     const [ax, ay] = P(j.t.x, shown.angle);
-    line(g, [[cx, cy], [ax, ay]], 5, colors.text);
+    line(g, [[cx, cy], [ax, ay]], 6, colors.arm);
     // поворот схвата — короткая перемычка на конце
     const roll = ((shown.angle - 90 + (shown.pov - 150)) * Math.PI) / 180;
     const rx = Math.cos(roll + Math.PI / 2) * 9, ry = -Math.sin(roll + Math.PI / 2) * 9;
     line(g, [[ax - rx, ay - ry], [ax + rx, ay + ry]], 3, colors.text);
-    dot(g, cx, cy, 9, colors.bg, colors.text, 2);
+    dot(g, cx, cy, 9, colors.text);
   }
 
   function renderReadout() {
@@ -1080,13 +1140,17 @@
   /** Протокол 1.0: биты 0–9 — величина (0..1023), бит 10 — направление */
   const loadPct = (raw) => ((raw & 1023) / 1023) * 100 * (raw & 1024 ? -1 : 1);
 
-  function spark(svg, values, color) {
+  /** Мини-график: линия с отступами сверху и снизу, текущее значение — над графиком (в заголовке) */
+  function spark(svg, values, color, valueEl, unit) {
+    if (valueEl) valueEl.textContent = values.length ? Math.round(values[values.length - 1]) + unit : '—';
     if (values.length < 2) { svg.innerHTML = ''; return; }
-    const lo = Math.min(...values), hi = Math.max(...values);
-    const span = hi - lo || 1;
-    const d = values.map((v, i) => (i ? 'L' : 'M') + ((i / (values.length - 1)) * 300).toFixed(1) + ',' + (56 - ((v - lo) / span) * 50).toFixed(1)).join(' ');
-    svg.innerHTML = '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
-      '<text x="298" y="10" text-anchor="end" font-size="10" fill="' + colors.muted + '" font-family="' + esc(colors.mono) + '">' + Math.round(values[values.length - 1]) + '</text>';
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (hi - lo < 4) { const mid = (hi + lo) / 2; lo = mid - 2; hi = mid + 2; } // ровная линия — по центру, а не у края
+    const top = 8, bottom = 52; // запас сверху и снизу
+    const y = (v) => (bottom - ((v - lo) / (hi - lo)) * (bottom - top)).toFixed(1);
+    const d = values.map((v, i) => (i ? 'L' : 'M') + ((i / (values.length - 1)) * 300).toFixed(1) + ',' + y(v)).join(' ');
+    svg.innerHTML = '<line x1="0" x2="300" y1="' + bottom + '" y2="' + bottom + '" stroke="' + colors.line + '" stroke-width="1" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
   }
 
   function renderTelemetry() {
@@ -1105,8 +1169,8 @@
     }).join('');
     const maxT = st.history.map((h) => Math.max(...Object.values(h.temp)));
     const maxL = st.history.map((h) => Math.max(...Object.values(h.load).map((v) => Math.abs(loadPct(v)))));
-    spark($('#spark-temp'), maxT.filter(Number.isFinite), colors.text);
-    spark($('#spark-load'), maxL.filter(Number.isFinite), colors.goal);
+    spark($('#spark-temp'), maxT.filter(Number.isFinite), colors.text, $('#spark-temp-val'), ' °C');
+    spark($('#spark-load'), maxL.filter(Number.isFinite), colors.arm, $('#spark-load-val'), ' %');
   }
 
   function renderLog() {
@@ -1147,6 +1211,11 @@
         // попутно обновим телеметрию в интерфейсе
         st[kind] = Driver.asDict(raw);
         dirty = true;
+      } else if (kind === 'cam-status' || kind === 'cam-start' || kind === 'cam-stop') {
+        const c = camera();
+        const res = kind === 'cam-status' ? (await c.status()).raw : kind === 'cam-start' ? await c.start() : await c.stop();
+        apiPrint((kind === 'cam-status' ? 'GET' : 'POST') + ' камера /api/' + kind.slice(4) + '  (' + camAddr() + ')', true, ms(), res == null || res === '' ? 'OK' : res);
+        refreshCam();
       } else if (kind === 'lamp') {
         const body = JSON.parse($('#api-body-lamp').value);
         const res = await Driver.request(u.lamp, {
@@ -1193,7 +1262,7 @@
         apiPrint('WS /ws', reply && reply.status === 'ok', ms(), reply);
       }
     } catch (e) {
-      const titles = { lamp: 'PUT /api/lamp', ws: 'WS /ws', set: 'POST /api/motors/pos/set', 'speed-get': 'GET /api/motors/speed', 'speed-set': 'POST /api/motors/speed' };
+      const titles = { 'cam-status': 'GET камера /api/status', 'cam-start': 'POST камера /api/start', 'cam-stop': 'POST камера /api/stop', lamp: 'PUT /api/lamp', ws: 'WS /ws', set: 'POST /api/motors/pos/set', 'speed-get': 'GET /api/motors/speed', 'speed-set': 'POST /api/motors/speed' };
       apiPrint(titles[kind] || 'GET /api/motors/' + kind, false, ms(), e.message);
     }
   }
@@ -1231,6 +1300,12 @@
     } else { lh.value = S.lampHost; lp.value = S.lampPort; }
     lh.placeholder = proxy.kind === 'serve' ? proxy.host : hostOf();
     lh.disabled = lp.disabled = proxy.kind === 'nginx';
+    const ch = $('#s-cam-host'), cpo = $('#s-cam-port');
+    if (proxy.kind === 'nginx') {
+      try { const u = new URL(proxy.camUrl); ch.value = u.hostname; cpo.value = u.port || 80; } catch (_) { ch.value = ''; cpo.value = ''; }
+    } else if (proxy.kind === 'serve' && !S.camHost) { ch.value = proxy.camHost || ''; cpo.value = proxy.camPort || ''; }
+    else { ch.value = S.camHost; cpo.value = S.camPort; }
+    ch.disabled = cpo.disabled = proxy.kind === 'nginx';
     $$('#s-transport button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.transport));
     $$('#s-grip button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.gripTrue));
   }
@@ -1279,6 +1354,11 @@
     if (lampPort && !(+lampPort >= 1 && +lampPort <= 65535)) { toast('Порт лампы должен быть от 1 до 65535', 'error'); return; }
     S.lampHost = lampHost;
     S.lampPort = lampPort;
+    const camHost = $('#s-cam-host').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const camPort = $('#s-cam-port').value.trim();
+    if (camHost && !/^[\w.\-]+$/.test(camHost)) { toast('Некорректный IP камеры', 'error'); return; }
+    if (camPort && !(+camPort >= 1 && +camPort <= 65535)) { toast('Порт камеры должен быть от 1 до 65535', 'error'); return; }
+    if (proxy.kind !== 'nginx') { S.camHost = camHost; S.camPort = camPort; }
     if (proxy.kind === 'serve') {
       try { await pushBackend(proxy.host, proxy.port, lampPref() || { host: '', port: 80 }); } catch (e) { toast('Прокси не принял адрес лампы: ' + e.message, 'error'); return; }
     }
@@ -1335,6 +1415,109 @@
     }
   });
 
+  /* ================================== камера ================================== */
+
+  const camHostOf = () => (S.camHost || '').trim() || '192.168.0.105';
+  const camPortOf = () => +S.camPort || 8080;
+  function camAddr() {
+    if (proxy.kind === 'serve') return (proxy.camHost || camHostOf()) + ':' + (proxy.camPort || camPortOf());
+    if (proxy.kind === 'nginx') return String(proxy.camUrl || '').replace(/^https?:\/\//, '');
+    return camHostOf() + ':' + camPortOf();
+  }
+  const camBase = () => (proxy.kind !== 'none' ? '/camera' : 'http://' + camHostOf() + ':' + camPortOf());
+  const camera = () => new Driver.Camera(camBase());
+  const cam = { running: null, raw: null, error: '', live: false, busy: false, view: 'scheme' };
+  const camImg = $('#stage-cam-img');
+
+  function renderCam() {
+    $('#cam-addr').textContent = camAddr() + (proxy.kind !== 'none' ? ' · через прокси' : '');
+    $('#cam-state').textContent = cam.error ? 'нет ответа' : cam.running === true ? 'включена' : cam.running === false ? 'выключена' : '—';
+    $('#cam-state').style.color = cam.error ? 'var(--err)' : cam.running ? 'var(--ok)' : '';
+    $('#cam-raw').textContent = cam.error ? cam.error : cam.raw == null ? '—' : typeof cam.raw === 'string' ? cam.raw : JSON.stringify(cam.raw, null, 2);
+    $('#cam-open').href = camBase() + '/stream';
+    const tg = $('#cam-toggle');
+    tg.checked = !!cam.running;
+    tg.disabled = cam.busy;
+    $('#cam-toggle-text').textContent = cam.busy ? (cam.running ? 'Выключаем…' : 'Включаем…') : cam.running ? 'Камера включена' : 'Камера выключена';
+    // сцена
+    const camOn = cam.view === 'camera';
+    $('#stage-cam').hidden = !camOn;
+    $('.view-side').hidden = camOn;
+    camImg.hidden = !cam.live;
+    $('#stage-cam-live').hidden = !cam.live;
+    $('#stage-cam-msg').hidden = cam.live;
+    $('#stage-cam-msg').textContent = cam.error
+      ? 'Камера не отвечает (' + camAddr() + '): ' + cam.error
+      : cam.running === false ? 'Камера выключена — включите её переключателем справа.' : 'Ждём изображение…';
+  }
+
+  function camStream(on) {
+    if (on) {
+      camImg.onload = () => { cam.live = true; renderCam(); };
+      camImg.onerror = () => { cam.live = false; renderCam(); };
+      camImg.src = camera().streamUrl();
+    } else {
+      camImg.onload = camImg.onerror = null;
+      camImg.removeAttribute('src');
+      cam.live = false;
+    }
+  }
+
+  async function refreshCam() {
+    if (cam.busy) return;
+    try {
+      const s = await camera().status();
+      cam.raw = s.raw; cam.running = s.running; cam.error = '';
+    } catch (e) {
+      cam.raw = null; cam.running = null; cam.error = e.message;
+    }
+    if (cam.view === 'camera') {
+      if (cam.running !== false && !cam.error && !camImg.getAttribute('src')) camStream(true);
+      if ((cam.running === false || cam.error) && camImg.getAttribute('src')) camStream(false);
+    }
+    renderCam();
+  }
+
+  async function camCommand(kind) {
+    try {
+      const res = kind === 'start' ? await camera().start() : await camera().stop();
+      addLog('ok', 'Камера: ' + (kind === 'start' ? 'включена' : 'выключена') + (res && typeof res === 'object' ? ' ' + JSON.stringify(res) : ''));
+      if (kind === 'stop') camStream(false);
+    } catch (e) {
+      addLog('error', 'Камера (' + camAddr() + '): ' + e.message);
+      toast('Камера: ' + e.message, 'error');
+    }
+    if (kind === 'start') await new Promise((r) => setTimeout(r, 500));
+    await refreshCam();
+  }
+
+  function setStageView(v) {
+    cam.view = v;
+    if (v === 'camera') refreshCam();
+    else { camStream(false); dirty = true; }
+    renderCam();
+  }
+
+  $('#cam-toggle').addEventListener('change', async (e) => {
+    const want = e.target.checked;
+    cam.busy = true;
+    renderCam();
+    if (!want) camStream(false);
+    try {
+      const res = want ? await camera().start() : await camera().stop();
+      cam.running = want;
+      addLog('ok', 'Камера ' + (want ? 'включена' : 'выключена') + (res && typeof res === 'object' ? ' ' + JSON.stringify(res) : ''));
+    } catch (err) {
+      addLog('error', 'Камера (' + camAddr() + '): ' + err.message);
+      toast('Камера: ' + err.message, 'error');
+    }
+    if (want) await new Promise((r) => setTimeout(r, 500));
+    cam.busy = false;
+    await refreshCam();
+  });
+  $('#cam-refresh').addEventListener('click', refreshCam);
+  setInterval(() => { if (cam.view === 'camera' || S.tab === 'camera') refreshCam(); }, 5000);
+
   /* ============================== вкладки и тема ============================== */
 
   function showTab(tab) {
@@ -1345,6 +1528,7 @@
     if (tab === 'programs') renderPrograms();
     if (tab === 'telemetry') { renderTelemetry(); renderLog(); }
     if (tab === 'settings') renderSettings();
+    setStageView(tab === 'camera' ? 'camera' : 'scheme'); // поток — только на вкладке «Камера»
     if (tab === 'api') {
       const u = urls();
       $('#api-base').textContent = backendAddr() + (u.api.startsWith('/') ? ' · через прокси' : '');
@@ -1370,7 +1554,7 @@
   (async () => {
     await detectProxy();
     // адрес, сохранённый в браузере, передаём прокси serve.py
-    if (proxy.kind === 'serve' && (S.host || S.lampHost || S.lampPort)) {
+    if (proxy.kind === 'serve' && (S.host || S.lampHost || S.lampPort || S.camHost)) {
       try { await pushBackend(S.host ? hostOf() : proxy.host, S.host ? portOf() : proxy.port, lampPref()); } catch (_) { /* ignore */ }
     }
     renderLamp();

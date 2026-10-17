@@ -243,5 +243,37 @@
     dispose() {}
   }
 
-  window.Driver = { RealDriver, DemoDriver, asDict, normalize, request, lampBody };
+  /* ------------------------------ Камера ------------------------------ */
+
+  /**
+   * Камера: POST /api/start, POST /api/stop, GET /api/status, GET /stream (MJPEG).
+   * base — '/camera' (через прокси serve.py / nginx) или 'http://IP:порт' (напрямую).
+   */
+  class Camera {
+    constructor(base) { this.base = base.replace(/\/+$/, ''); }
+    start() { return request(this.base + '/api/start', { method: 'POST', headers: { accept: 'application/json' } }, 10000); }
+    stop() { return request(this.base + '/api/stop', { method: 'POST', headers: { accept: 'application/json' } }, 10000); }
+    async status() {
+      const raw = await request(this.base + '/api/status', undefined, 5000);
+      return { raw, running: cameraRunning(raw) };
+    }
+    streamUrl() { return this.base + '/stream?t=' + Date.now(); }
+  }
+
+  /** Формат ответа /api/status заранее не известен — понимаем распространённые варианты */
+  function cameraRunning(r) {
+    if (typeof r === 'boolean') return r;
+    if (typeof r === 'string') return /run|start|on|active|stream|true|ok/i.test(r) && !/stop|off|idle|false/i.test(r);
+    if (!r || typeof r !== 'object') return null;
+    for (const k of ['running', 'is_running', 'active', 'streaming', 'started', 'enabled', 'on']) {
+      if (typeof r[k] === 'boolean') return r[k];
+    }
+    for (const k of ['status', 'state']) {
+      if (typeof r[k] === 'string') return cameraRunning(r[k]);
+      if (typeof r[k] === 'boolean') return r[k];
+    }
+    return null;
+  }
+
+  window.Driver = { RealDriver, DemoDriver, Camera, cameraRunning, asDict, normalize, request, lampBody };
 })();

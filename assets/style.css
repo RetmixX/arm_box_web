@@ -1,40 +1,44 @@
-/* ARM·BOX — минималистичный пульт. Без зависимостей. */
+/* ARM·BOX — отладочная версия. Палитра «алюминий + сигнальный оранжевый», как в презентации. */
+@import url('fonts.css');
 
 :root {
-  --bg: #ffffff;
-  --bg-soft: #f6f6f4;
-  --line: #e7e7e3;
-  --line-strong: #d2d2cc;
-  --text: #111111;
-  --muted: #8a8a85;
-  --accent: #111111;
-  --accent-ink: #ffffff;
-  --goal: #2f6bff;
-  --zone: rgba(47, 107, 255, 0.07);
-  --ok: #1a9c5b;
-  --warn: #c7870a;
-  --err: #d6303f;
+  --bg: #E4E7EA;          /* алюминий */
+  --bg-soft: #F4F5F6;     /* панели */
+  --line: #D6DADF;
+  --line-strong: #C3C9D0;
+  --text: #1F242B;        /* графит */
+  --muted: #7E8792;       /* сталь */
+  --accent: #1F242B;
+  --accent-ink: #F4F5F6;
+  --arm: #FF5A1F;         /* сигнальный оранжевый */
+  --goal: #FF5A1F;
+  --zone: #F4F5F6;
+  --ok: #2FA36B;
+  --warn: #C7870A;
+  --err: #D93F3F;
 
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font: 'Onest', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --display: 'Unbounded', 'Onest', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  --r: 8px;
+  --r: 12px;
   color-scheme: light;
 }
 
 :root[data-theme='dark'] {
-  --bg: #0f0f0f;
-  --bg-soft: #181818;
-  --line: #262626;
-  --line-strong: #383838;
-  --text: #ededed;
-  --muted: #7d7d7d;
-  --accent: #ededed;
-  --accent-ink: #0f0f0f;
-  --goal: #6d95ff;
-  --zone: rgba(109, 149, 255, 0.09);
-  --ok: #3ccf85;
-  --warn: #e5a93a;
-  --err: #ff5d6a;
+  --bg: #16191D;
+  --bg-soft: #20242A;
+  --line: #2B3036;
+  --line-strong: #3A4148;
+  --text: #E9ECEF;
+  --muted: #8D96A0;
+  --accent: #E9ECEF;
+  --accent-ink: #16191D;
+  --arm: #FF6A2E;
+  --goal: #FF6A2E;
+  --zone: #20242A;
+  --ok: #3CCF85;
+  --warn: #E5A93A;
+  --err: #FF5D6A;
   color-scheme: dark;
 }
 
@@ -102,7 +106,7 @@ kbd {
 .lg-goal { background: none; border-top: 2px dashed var(--goal); height: 0; }
 .lg-zone { height: 10px; background: var(--zone); border: 1px solid var(--line); }
 canvas { display: block; width: 100%; flex: 1; min-height: 0; cursor: crosshair; touch-action: none; }
-.view-side canvas { min-height: 260px; }
+.view-side canvas { min-height: 260px; height: 0; }
 .stage-bottom { display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: end; }
 .view-top canvas { height: 200px; flex: none; }
 .readout { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; gap: 40px; padding-bottom: 6px; }
@@ -291,6 +295,31 @@ input[type='range']::-moz-range-thumb { width: 10px; height: 10px; border-radius
 .log li.warn span:last-child { color: var(--warn); }
 .log li.ok span:last-child::before { content: '✓ '; color: var(--ok); }
 
+/* ---------- джойстики (отладка) ---------- */
+.brand-sub { font-weight: 400; letter-spacing: 0; margin-left: 6px; }
+.joys { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.joys-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.joys-row > div { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.center { text-align: center; }
+.joy { --size: 150px; width: var(--size); outline: none; }
+.joy.is-disabled { opacity: .4; pointer-events: none; }
+.joy-plate {
+  position: relative; width: var(--size); height: var(--size); border-radius: 50%;
+  border: 1px solid var(--line-strong); background: var(--bg-soft); touch-action: none; cursor: grab;
+  display: grid; place-items: center;
+}
+.joy:focus-visible .joy-plate { outline: 2px solid var(--goal); outline-offset: 3px; }
+.joy.is-held .joy-plate { cursor: grabbing; }
+.joy-thumb {
+  width: 32%; height: 32%; border-radius: 50%; background: var(--text); pointer-events: none;
+  transition: transform .18s cubic-bezier(.3, 1.4, .5, 1);
+}
+.joy.is-held .joy-thumb { transition: none; }
+.joy.is-active .joy-thumb { background: var(--goal); }
+.joy-lab { position: absolute; font-size: 10px; color: var(--muted); pointer-events: none; white-space: nowrap; }
+.joy-up { top: 6px; } .joy-down { bottom: 6px; }
+.joy-left { left: 8px; } .joy-right { right: 8px; }
+
 /* ---------- speed & address ---------- */
 .speed { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
 .speed b { font-weight: 500; font-size: 16px; }
@@ -349,3 +378,63 @@ a { color: inherit; text-underline-offset: 3px; }
   .pane { padding: 20px 16px; }
   .footer { margin-bottom: 0; padding-bottom: 16px; }
 }
+
+
+/* ================= оформление в стиле презентации ================= */
+.brand { font: 700 18px/1 var(--display); letter-spacing: -0.01em; }
+h2 { font-family: var(--display); font-size: 19px; font-weight: 600; }
+h3 { font-family: var(--display); font-size: 14px; font-weight: 600; }
+.panel { background: var(--bg-soft); border-left: 0; }
+.top { border-bottom: 0; }
+.tabs button.on { border-bottom-color: var(--arm); }
+
+/* кнопки и сегменты — «таблетки» */
+.btn { border-radius: 999px; }
+.btn.primary { background: var(--text); border-color: var(--text); color: var(--accent-ink); }
+.seg { border: 0; border-radius: 999px; padding: 3px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.seg button { border-radius: 999px; }
+.seg button + button { border-left: 0; }
+.seg button.on { background: var(--text); color: var(--accent-ink); }
+.input, .code-input { border-radius: 10px; background: var(--bg); }
+.stepbtn { border-radius: 50%; background: var(--bg); }
+.stepbtn:active, .stepbtn.held { background: var(--arm); border-color: var(--arm); color: #fff; }
+
+/* ползунки и переключатели — оранжевый акцент */
+input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(90deg, var(--arm) var(--p, 50%), var(--line-strong) var(--p, 50%)); }
+input[type='range']::-moz-range-progress { background: var(--arm); }
+input[type='range']::-webkit-slider-thumb { border-color: var(--text); background: var(--bg-soft); }
+.switch input:checked + span { background: var(--arm); }
+
+/* показания под схемой */
+.readout b { font: 500 26px/1.1 var(--display); letter-spacing: -0.02em; }
+
+/* джойстики — как в презентации */
+.joy-plate { background: var(--bg); border: 0; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.joy-thumb { position: relative; background: var(--text); box-shadow: 0 6px 14px rgba(31, 36, 43, .25); }
+.joy-thumb::after { content: ''; position: absolute; inset: 36%; border-radius: 50%; background: var(--arm); transition: inset .2s; }
+.joy.is-active .joy-thumb { background: var(--text); }
+.joy.is-active .joy-thumb::after { inset: 18%; }
+
+/* лампа */
+.lamp-btns button { border-radius: 14px; background: var(--bg); }
+
+/* камера */
+.camview { position: relative; flex: 1; min-height: 260px; border-radius: 18px; overflow: hidden; background: #0d0f12; display: grid; place-items: center; }
+.camview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camview .cam-msg { color: #c9ced4; text-align: center; padding: 24px; font-size: 14px; }
+.camview .cam-live {
+  position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 11px 5px 9px; border-radius: 999px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px;
+}
+.camview .cam-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--arm); animation: pulse 1.4s infinite; }
+.cam-panel-view { min-height: 200px; aspect-ratio: 16 / 9; flex: none; }
+.cam-status { font: 12px/1.5 var(--mono); background: var(--bg); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.stage-switch { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3; }
+.stage-switch button { padding: 5px 14px; }
+.lg-fact { background: var(--arm); height: 4px; border-radius: 2px; }
+.lg-goal { border-top-color: var(--muted); }
+.cam-toggle { padding: 14px 16px; border-radius: 14px; background: var(--bg); cursor: pointer; }
+.cam-toggle #cam-toggle-text { font-weight: 600; }
+.spark-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: -4px; }
+.spark-head b { font: 500 18px/1 var(--display); }
+.spark { height: 64px; }
